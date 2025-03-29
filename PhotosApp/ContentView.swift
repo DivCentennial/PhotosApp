@@ -3,93 +3,97 @@ import PhotosUI
 
 struct ContentView: View {
     // State variables for photo selection
-    @State private var selectedPhotos: [Image] = []
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var displayedImages: [Image] = []
     @State private var showPhotosPicker = false
-    @State private var selectedPhotoItems: [PhotosPickerItem] = []
     
     var body: some View {
-        ZStack {
-            // Full-screen gradient background
-            LinearGradient(
-                gradient: Gradient(colors: [.orange, .blue, .red]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+        // Breaking up the expression into multiple parts
+        mainView
+            .photosPicker(
+                isPresented: $showPhotosPicker,
+                selection: $selectedPhotos,
+                maxSelectionCount: 5,
+                matching: .images
             )
-            .ignoresSafeArea()
-            
-            VStack {
-                // Add Photo Button
-                Button(action: {
-                    showPhotosPicker = true
-                }) {
-                    Text("Add Photo")
-                        .foregroundColor(.white)
-                        .padding()
-                        .background(Color.black.opacity(0.5))
-                        .cornerRadius(10)
-                }
-                
-                Spacer()
+            .onChange(of: selectedPhotos) { _, items in
+                loadImages(from: items)
             }
-            
-            // Scrollable photos at the bottom of the screen
-            VStack {
-                Spacer()
-                
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(selectedPhotos.indices, id: \.self) { index in
-                            selectedPhotos[index]
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 100, height: 100)
-                                .clipped()
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-                .frame(height: UIScreen.main.bounds.height / 5)
-            }
-        }
-        // Photo picker modifier
-        .photosPicker(
-            isPresented: $showPhotosPicker,
-            selection: $selectedPhotoItems,
-            maxSelectionCount: 5,
-            matching: .images
+    }
+    
+    // Main view separated to reduce complexity
+    private var mainView: some View {
+        backgroundGradient
+            .overlay(addPhotoButton, alignment: .top)
+            .overlay(photoScrollView, alignment: .bottom)
+    }
+    
+    // Background gradient
+    private var backgroundGradient: some View {
+        LinearGradient(
+            gradient: Gradient(colors: [.orange, .blue, .red]),
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
         )
-        // Handle photo selection changes
-        .onChange(of: selectedPhotoItems) { _, newItems in
-            Task {
-                var loadedImages: [Image] = []
-                
-                for item in newItems {
-                    do {
-                        if let image = try await loadImage(from: item) {
-                            loadedImages.append(image)
-                        }
-                    } catch {
-                        print("Error loading image: \(error)")
-                    }
+        .ignoresSafeArea()
+    }
+    
+    // Add Photo button
+    private var addPhotoButton: some View {
+        Button(action: {
+            showPhotosPicker = true
+        }) {
+            Text("Add Photo")
+                .foregroundColor(.white)
+                .padding()
+                .background(Color.black.opacity(0.5))
+                .cornerRadius(10)
+        }
+        .padding(.top, 50)
+    }
+    
+    // Scrollable photos view
+    private var photoScrollView: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(0..<displayedImages.count, id: \.self) { index in
+                    displayedImages[index]
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 100, height: 100)
+                        .clipped()
                 }
-                
-                // Update selected photos
-                selectedPhotos = loadedImages
+            }
+            .padding(.horizontal)
+        }
+        .containerRelativeFrame(.vertical, count: 5, span: 1, spacing: 10)
+        .background(Color.black.opacity(0.3))
+    }
+
+    
+    
+    // Function to load images
+    private func loadImages(from items: [PhotosPickerItem]) {
+        Task {
+            displayedImages = [] // Clear previous images
+            for item in items {
+                // Load image data from PhotosPickerItem
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = createImageFromData(data) {
+                    displayedImages.append(image) // Append decoded Image
+                }
             }
         }
     }
+    // Create image from data without directly using UIKit
     
-    // Image loading function
-    private func loadImage(from item: PhotosPickerItem) async throws -> Image? {
-        do {
-            let data = try await item.loadTransferable(type: Data.self)
-            if let data = data, let uiImage = UIImage(data: data) {
-                return Image(uiImage: uiImage)
-            }
-        } catch {
-            print("Error loading image data: \(error)")
+    private func createImageFromData(_ data: Data) -> Image? {
+        if let cgImageSource = CGImageSourceCreateWithData(data as CFData, nil),
+           let cgImage = CGImageSourceCreateImageAtIndex(cgImageSource, 0, nil) {
+            // Convert CGImage to SwiftUI Image
+            return Image(decorative: cgImage, scale: 1.0, orientation: .up)
         }
-        return nil
+        return nil // Return nil if image creation fails
     }
 }
 
